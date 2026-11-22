@@ -1,0 +1,25 @@
+cat >> .gitignore <<'EOF'
+
+# Build outputs
+**/target/
+
+# Local databases
+*.mv.db
+*.trace.db
+
+# Media and test recordings
+*.mp4
+*.mov
+*.wav
+*.mp3
+
+# Secrets and local settings
+key.txt
+.env
+.env.*
+
+# OS and IDE files
+.DS_Store
+.idea/
+*.log
+EOF
