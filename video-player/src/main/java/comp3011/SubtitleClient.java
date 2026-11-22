@@ -72,7 +72,8 @@ public final class SubtitleClient implements AutoCloseable {
 
     /** Called on the JavaFX thread when a new media file is opened. */
     public void setMedia(File file) {
-        if (file == null || file.equals(media)) return;
+        if (file == null || file.equals(media))
+            return;
         generation.incrementAndGet();
         cuesByChunk.clear();
         lastAttemptNs.clear();
@@ -83,53 +84,60 @@ public final class SubtitleClient implements AutoCloseable {
     /** Request the current chunk (and the next one shortly before its boundary). */
     public void requestNear(double seconds) {
         File current = media;
-        if (current == null || closed || seconds < 0) return;
+        if (current == null || closed || seconds < 0)
+            return;
         int index = Math.max(0, (int) (seconds / CHUNK_SECONDS));
         requestChunk(current, index);
-        if (seconds % CHUNK_SECONDS >= 12) requestChunk(current, index + 1);
+        if (seconds % CHUNK_SECONDS >= 12)
+            requestChunk(current, index + 1);
     }
 
-    /** Look up text using the MEDIA clock, not the wall-clock or API response time. */
+    /**
+     * Look up text using the MEDIA clock, not the wall-clock or API response time.
+     */
     public String textAt(double seconds) {
         int index = Math.max(0, (int) (seconds / CHUNK_SECONDS));
         for (int candidate = Math.max(0, index - 1); candidate <= index; candidate++) {
             List<SubtitleCue> cues = cuesByChunk.get(candidate);
-            if (cues == null) continue;
+            if (cues == null)
+                continue;
             for (SubtitleCue cue : cues) {
-                if (cue.visibleAt(seconds)) return cue.text();
+                if (cue.visibleAt(seconds))
+                    return cue.text();
             }
         }
         return "";
     }
 
     private void requestChunk(File current, int index) {
-        if (cuesByChunk.containsKey(index) || requestsPending.containsKey(index)) return;
+        if (cuesByChunk.containsKey(index) || requestsPending.containsKey(index))
+            return;
         long now = System.nanoTime();
         Long last = lastAttemptNs.get(index);
-        if (last != null && now - last < RETRY_DELAY_NS) return;
+        if (last != null && now - last < RETRY_DELAY_NS)
+            return;
         lastAttemptNs.put(index, now);
         long jobGeneration = generation.get();
         requestsPending.put(index, jobGeneration);
         worker.submit(() -> {
             try {
-                if (jobGeneration != generation.get()) return;
+                if (jobGeneration != generation.get())
+                    return;
                 long extractionStart = System.nanoTime();
                 Chunk chunk = extractAudio(
                         current,
                         index * CHUNK_SECONDS,
-                        CHUNK_SECONDS
-                );
+                        CHUNK_SECONDS);
 
-                double extractionMs =
-                        (System.nanoTime() - extractionStart) / 1_000_000.0;
+                double extractionMs = (System.nanoTime() - extractionStart) / 1_000_000.0;
 
                 System.out.printf(
                         "[SUBTITLE] Chunk %d audio extraction: %.2f ms%n",
                         index,
-                        extractionMs
-                );
+                        extractionMs);
                 if (chunk == null || chunk.wav().length == 0) {
-                    if (jobGeneration == generation.get()) cuesByChunk.put(index, List.of());
+                    if (jobGeneration == generation.get())
+                        cuesByChunk.put(index, List.of());
                     return;
                 }
                 List<SubtitleCue> cues = callServer(chunk);
@@ -138,9 +146,16 @@ public final class SubtitleClient implements AutoCloseable {
                     updatedListener.run();
                 }
             } catch (Exception e) {
-                // Subtitles are optional: never crash or stop media playback.
+                System.err.println(
+                    "[SUBTITLE ERROR] " + e.getClass().getSimpleName()
+                    + ": " + e.getMessage()
+                );
+                e.printStackTrace();
+
                 if (jobGeneration == generation.get()) {
-                    statusListener.accept("Subtitles unavailable: " + e.getMessage());
+                    statusListener.accept(
+                        "Subtitles unavailable: " + e.getMessage()
+                    );
                 }
             } finally {
                 requestsPending.remove(index, jobGeneration);
@@ -148,17 +163,22 @@ public final class SubtitleClient implements AutoCloseable {
         });
     }
 
-    private record Chunk(byte[] wav, double audioStartSeconds) { }
+    private record Chunk(byte[] wav, double audioStartSeconds) {
+    }
 
-    /** Decode audio from the original video without touching the playback grabber. */
+    /**
+     * Decode audio from the original video without touching the playback grabber.
+     */
     private Chunk extractAudio(File file, double startSeconds, double seconds) throws Exception {
         try (FFmpegFrameGrabber grabber = new FFmpegFrameGrabber(file)) {
             grabber.setSampleMode(FrameGrabber.SampleMode.SHORT);
             grabber.start();
             int rate = grabber.getSampleRate();
             int channels = grabber.getAudioChannels();
-            if (rate <= 0 || channels <= 0) return null;
-            if (startSeconds > 0) grabber.setTimestamp((long) (startSeconds * 1_000_000));
+            if (rate <= 0 || channels <= 0)
+                return null;
+            if (startSeconds > 0)
+                grabber.setTimestamp((long) (startSeconds * 1_000_000));
 
             AudioPlayer pcmConverter = new AudioPlayer();
             ByteArrayOutputStream audio = new ByteArrayOutputStream();
@@ -168,14 +188,18 @@ public final class SubtitleClient implements AutoCloseable {
             while (!Thread.currentThread().isInterrupted()
                     && (samples = grabber.grabSamples()) != null) {
                 long timestampUs = grabber.getTimestamp();
-                if (timestampUs >= stopUs) break;
-                if (timestampUs < (long) (startSeconds * 1_000_000)) continue;
-                if (audioStart < 0) audioStart = timestampUs / 1_000_000.0;
+                if (timestampUs >= stopUs)
+                    break;
+                if (timestampUs < (long) (startSeconds * 1_000_000))
+                    continue;
+                if (audioStart < 0)
+                    audioStart = timestampUs / 1_000_000.0;
                 byte[] bytes = pcmConverter.copySamples(samples);
                 audio.write(bytes);
             }
             byte[] pcm = audio.toByteArray();
-            if (pcm.length == 0) return null;
+            if (pcm.length == 0)
+                return null;
             AudioFormat format = new AudioFormat(rate, 16, channels, true, false);
             ByteArrayOutputStream wav = new ByteArrayOutputStream();
             try (AudioInputStream stream = new AudioInputStream(
@@ -206,14 +230,104 @@ public final class SubtitleClient implements AutoCloseable {
             throw new IOException("Subtitle server returned HTTP " + response.statusCode());
         }
         JsonNode root = json.readTree(response.body());
+        JsonNode debugSegments = root.path("segments");
+        JsonNode debugWords = root.path("words");
+        if (chunk.audioStartSeconds() < 1.0) {
+            System.out.printf(
+                    "[SYNC] Chunk offset: %.3f, segments: %d, words: %d%n",
+                    chunk.audioStartSeconds(),
+                    debugSegments.size(),
+                    debugWords.size());
+
+            for (int i = 0; i < Math.min(3, debugWords.size()); i++) {
+                JsonNode word = debugWords.get(i);
+
+                System.out.printf(
+                        "[SYNC] Word %d: start=%.3f, end=%.3f, text=%s%n",
+                        i,
+                        word.path("start").asDouble(),
+                        word.path("end").asDouble(),
+                        word.path("word").asText());
+            }
+
+            if (debugSegments.size() > 0) {
+                JsonNode first = debugSegments.get(0);
+
+                System.out.printf(
+                        "[SYNC] First segment: start=%.3f, end=%.3f%n",
+                        first.path("start").asDouble(),
+                        first.path("end").asDouble());
+            }
+        }
         JsonNode segments = root.path("segments");
-        if (!segments.isArray()) throw new IOException("Invalid subtitle response");
+        if (!segments.isArray())
+            throw new IOException("Invalid subtitle response");
         List<SubtitleCue> results = new ArrayList<>();
+        JsonNode words = root.path("words");
+
         for (JsonNode segment : segments) {
-            double start = segment.path("start").asDouble() + chunk.audioStartSeconds();
-            double end = segment.path("end").asDouble() + chunk.audioStartSeconds();
+            double segmentStart = segment.path("start").asDouble();
+            double segmentEnd = segment.path("end").asDouble();
             String text = segment.path("text").asText("");
-            results.addAll(SubtitleFormatter.format(start, end, text));
+
+            double actualStart = segmentStart;
+
+            if (words.isArray()) {
+                for (JsonNode word : words) {
+                    double wordStart = word.path("start").asDouble(Double.NaN);
+
+                    if (Double.isFinite(wordStart)
+                            && wordStart >= segmentStart - 0.05
+                            && wordStart < segmentEnd) {
+
+                        actualStart = Math.max(segmentStart, wordStart);
+                        break;
+                    }
+                }
+            }
+
+            results.addAll(SubtitleFormatter.format(
+                    actualStart + chunk.audioStartSeconds(),
+                    segmentEnd + chunk.audioStartSeconds(),
+                    text));
+        }
+        // Correct an unusually long first word that includes
+        // leading silence. Only adjust the FIRST subtitle cue.
+        if (chunk.audioStartSeconds() < 0.05 && !results.isEmpty()
+                && words.isArray()
+                && words.size() > 0) {
+
+            JsonNode firstWord = words.get(0);
+
+            double wordStart = firstWord.path("start").asDouble(Double.NaN);
+
+            double wordEnd = firstWord.path("end").asDouble(Double.NaN);
+
+            SubtitleCue firstCue = results.get(0);
+
+            if (Double.isFinite(wordStart)
+                    && Double.isFinite(wordEnd)
+                    && wordStart <= 0.05
+                    && wordEnd - wordStart >= 0.75
+                    && firstCue.start() <= 0.05
+                    && wordEnd < firstCue.end()) {
+
+                results.set(0, new SubtitleCue(
+                        wordEnd,
+                        firstCue.end(),
+                        firstCue.text()));
+
+                System.out.printf(
+                        "[SYNC] Corrected first caption start: %.3f -> %.3f%n",
+                        firstCue.start(),
+                        wordEnd);
+            }
+        }
+        if (chunk.audioStartSeconds() < 1.0 && !results.isEmpty()) {
+            System.out.printf(
+                    "[SYNC] First caption: start=%.3f, end=%.3f%n",
+                    results.get(0).start(),
+                    results.get(0).end());
         }
         return List.copyOf(results);
     }

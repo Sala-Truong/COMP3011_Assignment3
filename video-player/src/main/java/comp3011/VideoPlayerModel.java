@@ -141,6 +141,7 @@ public class VideoPlayerModel {
     private int displayedFramesInWindow = 0;
     private long previousPulseNs = 0;
     private static final int STARTUP_READY_FRAMES = 10;
+    private static final double SUBTITLE_DELAY_SECONDS = 0.2;
     private boolean startupBuffering;
 
     public VideoPlayerModel(
@@ -264,9 +265,18 @@ public class VideoPlayerModel {
     }
 
     private void refreshSubtitleText() {
-        subtitleTextHandler.accept(subtitlesEnabled
-                ? subtitleClient.textAt(currentTimestampUs / 1_000_000.0)
-                : "");
+        double currentSeconds = currentTimestampUs / 1_000_000.0;
+
+        double subtitleTime = Math.max(
+                0,
+                currentSeconds - SUBTITLE_DELAY_SECONDS
+        );
+
+        subtitleTextHandler.accept(
+                subtitlesEnabled
+                        ? subtitleClient.textAt(subtitleTime)
+                        : ""
+        );
     }
 
     public boolean isAudioOutputEnabled() {

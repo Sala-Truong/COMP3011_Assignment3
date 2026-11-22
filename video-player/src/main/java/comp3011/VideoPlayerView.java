@@ -30,9 +30,7 @@ import javafx.scene.shape.Line;
 import javafx.scene.shape.Polygon;
 import javafx.scene.shape.SVGPath;
 import javafx.scene.shape.StrokeLineCap;
-import javafx.scene.shape.StrokeType;
 import javafx.scene.text.Font;
-import javafx.scene.text.Text;
 import javafx.scene.CacheHint;
 
 /**
@@ -51,7 +49,7 @@ public class VideoPlayerView {
     private static final int ICON_SIZE = 28;
 
     private final ImageView imageView = new ImageView();
-    private final Text subtitleText = new Text();
+    private final Label subtitleText = new Label();
     private final Label statusLabel = new Label("No video loaded");
     private final Label tooltipLabel = new Label();
     private final Pane tooltipLayer = new Pane();
@@ -67,29 +65,46 @@ public class VideoPlayerView {
 
     public VideoPlayerView() {
         imageView.setPreserveRatio(true);
-        imageView.setSmooth(false);
+imageView.setSmooth(false);
 
-        // JavaFX text overlay keeps the frame-processing workers unchanged.
-        // Subtitles can be toggled immediately, even when frames are buffered.
-        subtitleText.setFill(Color.WHITE);
-        subtitleText.setStroke(Color.BLACK);
-        subtitleText.setStrokeWidth(3.0);
-        subtitleText.setStrokeType(StrokeType.OUTSIDE);
-        subtitleText.setFont(Font.font("Arial", 24));
-        subtitleText.setMouseTransparent(true);
-        // Cache the rendered subtitle so that an unchanged
-        // caption does not need to be rasterized every frame.
-        subtitleText.setCache(true);
-        subtitleText.setCacheHint(CacheHint.SPEED);
-        videoPane = new StackPane(imageView, subtitleText);
-        StackPane.setAlignment(subtitleText, Pos.BOTTOM_CENTER);
-        StackPane.setMargin(subtitleText, new Insets(0, 20, 24, 20));
-        subtitleText.wrappingWidthProperty().bind(videoPane.widthProperty().subtract(50));
-        videoPane.setStyle("-fx-background-color: black;");
-        videoPane.setMinSize(0, 0);
-        videoPane.setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);
-        imageView.fitWidthProperty().bind(videoPane.widthProperty());
-        imageView.fitHeightProperty().bind(videoPane.heightProperty());
+// Lightweight subtitle overlay.
+subtitleText.setTextFill(Color.WHITE);
+subtitleText.setFont(Font.font("Arial", 24));
+subtitleText.setWrapText(true);
+subtitleText.setAlignment(Pos.CENTER);
+subtitleText.setMouseTransparent(true);
+
+// Dark background instead of expensive text outlining.
+subtitleText.setStyle(
+    "-fx-background-color: rgba(0, 0, 0, 0.72);"
+    + "-fx-padding: 6 10 6 10;"
+);
+
+// Cache caption rendering.
+subtitleText.setCache(true);
+subtitleText.setCacheHint(CacheHint.SPEED);
+subtitleText.setVisible(false);
+
+// Create the video container ONCE.
+videoPane = new StackPane(imageView, subtitleText);
+
+// Position subtitles near the bottom.
+StackPane.setAlignment(subtitleText, Pos.BOTTOM_CENTER);
+StackPane.setMargin(subtitleText, new Insets(0, 20, 24, 20));
+
+// Allow long subtitles to wrap.
+subtitleText.maxWidthProperty().bind(
+    videoPane.widthProperty().subtract(50)
+);
+
+// Configure video container.
+videoPane.setStyle("-fx-background-color: black;");
+videoPane.setMinSize(0, 0);
+videoPane.setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);
+
+// Make the video resize with the container.
+imageView.fitWidthProperty().bind(videoPane.widthProperty());
+imageView.fitHeightProperty().bind(videoPane.heightProperty());
 
         startOverButton = iconButton(createLoopIcon(false, null));
         backFiveButton = iconButton(createLoopIcon(false, "5"));
@@ -158,12 +173,18 @@ public class VideoPlayerView {
     }
 
     public void setSubtitleText(String text) {
-        String next = text == null ? "" : text;
+    String newText = text == null ? "" : text;
 
-        if (!next.equals(subtitleText.getText())) {
-            subtitleText.setText(next);
-        }
+    // Avoid unnecessary text layout and redraw operations.
+    if (newText.equals(subtitleText.getText())) {
+        return;
     }
+
+    subtitleText.setText(newText);
+
+    // Hide the subtitle element when there is no caption.
+    subtitleText.setVisible(!newText.isBlank());
+}
 
     public void showSubtitlesEnabled(boolean enabled) {
         subtitleButton.setStyle(enabled ? "-fx-background-color: lightgreen;" : "");
