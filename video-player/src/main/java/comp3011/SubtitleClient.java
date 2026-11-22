@@ -126,7 +126,7 @@ public final class SubtitleClient implements AutoCloseable {
             } catch (Exception e) {
                 // Subtitles are optional: never crash or stop media playback.
                 if (jobGeneration == generation.get()) {
-                    statusListener.accept("Subtitles unavailable: " + e.getClass().getSimpleName());
+                    statusListener.accept("Subtitles unavailable: " + e.getMessage());
                 }
             } finally {
                 requestsPending.remove(index, jobGeneration);

@@ -469,6 +469,16 @@ public class VideoPlayerModel {
         }
 
         if (frame.image == null) {
+            // Audio-only frames do not need image processing.
+            // Prefetch the next frame instead of wasting
+            // another JavaFX timer callback.
+            if (playbackOpen && !pauseRequested
+                    && !endOfStreamReached) {
+                long generation = playbackGeneration;
+
+                pendingDecodedFrame = decoderExecutor.submit(
+                        () -> decodeOneFrame(generation));
+            }
             return null;
         }
 
