@@ -114,4 +114,16 @@ public final class FrameProcessingCoordinator<T> implements AutoCloseable {
         pending.clear();
         workers.shutdownNow();
     }
+    public int readyInOrderCount() {
+        int ready = 0;
+
+        for (Future<T> future : pending) {
+            if (!future.isDone()) {
+                break;
+            }
+            ready++;
+        }
+
+        return ready;
+    }
 }

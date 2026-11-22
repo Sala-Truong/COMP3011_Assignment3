@@ -113,7 +113,21 @@ public final class SubtitleClient implements AutoCloseable {
         worker.submit(() -> {
             try {
                 if (jobGeneration != generation.get()) return;
-                Chunk chunk = extractAudio(current, index * CHUNK_SECONDS, CHUNK_SECONDS);
+                long extractionStart = System.nanoTime();
+                Chunk chunk = extractAudio(
+                        current,
+                        index * CHUNK_SECONDS,
+                        CHUNK_SECONDS
+                );
+
+                double extractionMs =
+                        (System.nanoTime() - extractionStart) / 1_000_000.0;
+
+                System.out.printf(
+                        "[SUBTITLE] Chunk %d audio extraction: %.2f ms%n",
+                        index,
+                        extractionMs
+                );
                 if (chunk == null || chunk.wav().length == 0) {
                     if (jobGeneration == generation.get()) cuesByChunk.put(index, List.of());
                     return;

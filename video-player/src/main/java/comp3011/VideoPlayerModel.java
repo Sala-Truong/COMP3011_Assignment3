@@ -136,6 +136,12 @@ public class VideoPlayerModel {
     private long playbackStartNs;
     private long pauseStartedNs;
     private long relativeSeekBaseUs = NO_SEEK_REQUEST;
+    private long lastDisplayedFrameNs = 0;
+    private long fpsWindowStartNs = 0;
+    private int displayedFramesInWindow = 0;
+    private long previousPulseNs = 0;
+    private static final int STARTUP_READY_FRAMES = 10;
+    private boolean startupBuffering;
 
     public VideoPlayerModel(
             boolean audioEnabled,
@@ -178,11 +184,13 @@ public class VideoPlayerModel {
         // frameProcessors.add(new FrameFlickerer());
         // frameProcessors.add(new FrameJitterer());
         // frameProcessors.add(new FrameNumberer());
+        System.out.println("[CONFIG] Subtitles initially enabled: " + this.subtitlesEnabled);
     }
 
     public void play(File file) {
         videoFile = file;
         subtitleClient.setMedia(file);
+        System.out.println("[SUBTITLE] Initial state: " + subtitlesEnabled);
         if (subtitlesEnabled) subtitleClient.requestNear(0);
         videoDurationUs = NO_SEEK_REQUEST;
         videoFrameDurationUs = 0;
@@ -235,10 +243,19 @@ public class VideoPlayerModel {
 
     public void toggleSubtitles() {
         subtitlesEnabled = !subtitlesEnabled;
+
+        System.out.println(
+            "[SUBTITLE] Toggled to: " + subtitlesEnabled
+        );
+
         subtitlesEnabledHandler.accept(subtitlesEnabled);
+
         if (subtitlesEnabled && videoFile != null) {
-            subtitleClient.requestNear(currentTimestampUs / 1_000_000.0);
+            subtitleClient.requestNear(
+                currentTimestampUs / 1_000_000.0
+            );
         }
+
         refreshSubtitleText();
     }
 
@@ -359,7 +376,13 @@ public class VideoPlayerModel {
         grabber = new FFmpegFrameGrabber(videoFile);
         grabber.setImageMode(FrameGrabber.ImageMode.COLOR);
         grabber.setSampleMode(FrameGrabber.SampleMode.SHORT);
+        long ffmpegStart = System.nanoTime();
         grabber.start();
+
+        System.out.printf(
+            "[STARTUP] FFmpeg initialization: %.2f ms%n",
+            (System.nanoTime() - ffmpegStart) / 1_000_000.0
+        );
 
         notifyVideoSizeChanged(grabber.getImageWidth(), grabber.getImageHeight());
 
@@ -378,7 +401,17 @@ public class VideoPlayerModel {
         audioAvailable = grabber.hasAudio();
         audioPlayer = new AudioPlayer();
         if (audioAvailable) {
-            audioPlayer.open(grabber.getSampleRate(), grabber.getAudioChannels());
+            long audioStart = System.nanoTime();
+
+            audioPlayer.open(
+                grabber.getSampleRate(),
+                grabber.getAudioChannels()
+            );
+
+            System.out.printf(
+                "[STARTUP] Audio initialization: %.2f ms%n",
+                (System.nanoTime() - audioStart) / 1_000_000.0
+            );
         }
 
         if (startTimestampUs > 0) {
@@ -390,6 +423,8 @@ public class VideoPlayerModel {
     }
 
     private void resetPlaybackClock(long logicalTimestampUs) {
+        startupBuffering = true;
+        previousPulseNs = 0;
         pendingAudio.clear();
         preparedFrame = null;
         currentTimestampUs = logicalTimestampUs;
@@ -643,12 +678,47 @@ public class VideoPlayerModel {
         if (!playbackOpen || pauseRequested) {
             return;
         }
+        if (previousPulseNs != 0) {
+            double gapMs = (now - previousPulseNs) / 1_000_000.0;
 
+            if (gapMs > 100) {
+                System.out.printf(
+                    "[PULSE] JavaFX pulse gap: %.1f ms%n",
+                    gapMs
+                );
+            }
+        }
+
+        previousPulseNs = now;
         collectProcessedFrame();
         if (!playbackOpen) {
             return;
         }
+        // Wait until the initial frame buffer is ready.
+        // Do not start the playback clock too early.
+        if (startupBuffering) {
+            int readyFrames = (preparedFrame != null ? 1 : 0)
+                    + processingCoordinator.readyInOrderCount();
 
+            boolean enoughFrames =
+                    preparedFrame != null
+                    && (readyFrames >= STARTUP_READY_FRAMES
+                        || (endOfStreamReached
+                            && pendingDecodedFrame == null));
+
+            if (!enoughFrames) {
+                prepareNextFrame();
+                return;
+            }
+
+            // Start the media clock only after buffering.
+            playbackStartNs = now;
+            startupBuffering = false;
+
+            System.out.println(
+                    "[STARTUP] Initial buffer ready: "
+                    + readyFrames + " frames");
+        }
         // Task (1)
         writeDueAudio(now);
 
@@ -683,6 +753,40 @@ public class VideoPlayerModel {
     }
 
     private void displayPreparedFrame(long now) {
+        long displayNs = System.nanoTime();
+
+        if (lastDisplayedFrameNs != 0) {
+            double gapMs =
+                    (displayNs - lastDisplayedFrameNs) / 1_000_000.0;
+
+            if (gapMs > 200) {
+                System.out.printf(
+                        "[DISPLAY] Gap between frames: %.1f ms%n",
+                        gapMs
+                );
+            }
+        }
+
+        lastDisplayedFrameNs = displayNs;
+
+        if (fpsWindowStartNs == 0) {
+            fpsWindowStartNs = displayNs;
+        }
+
+        displayedFramesInWindow++;
+
+        double elapsedSeconds =
+                (displayNs - fpsWindowStartNs) / 1_000_000_000.0;
+
+        if (elapsedSeconds >= 1.0) {
+            System.out.printf(
+                    "[DISPLAY] Delivered FPS: %.1f%n",
+                    displayedFramesInWindow / elapsedSeconds
+            );
+
+            fpsWindowStartNs = displayNs;
+            displayedFramesInWindow = 0;
+        }
         PreparedFrame frame = preparedFrame;
         preparedFrame = null;
         currentTimestampUs = frame.logicalTimestampUs();

@@ -33,6 +33,7 @@ import javafx.scene.shape.StrokeLineCap;
 import javafx.scene.shape.StrokeType;
 import javafx.scene.text.Font;
 import javafx.scene.text.Text;
+import javafx.scene.CacheHint;
 
 /**
  * The view part of the video player model-view-controller architecture.
@@ -76,6 +77,10 @@ public class VideoPlayerView {
         subtitleText.setStrokeType(StrokeType.OUTSIDE);
         subtitleText.setFont(Font.font("Arial", 24));
         subtitleText.setMouseTransparent(true);
+        // Cache the rendered subtitle so that an unchanged
+        // caption does not need to be rasterized every frame.
+        subtitleText.setCache(true);
+        subtitleText.setCacheHint(CacheHint.SPEED);
         videoPane = new StackPane(imageView, subtitleText);
         StackPane.setAlignment(subtitleText, Pos.BOTTOM_CENTER);
         StackPane.setMargin(subtitleText, new Insets(0, 20, 24, 20));
@@ -153,7 +158,11 @@ public class VideoPlayerView {
     }
 
     public void setSubtitleText(String text) {
-        subtitleText.setText(text == null ? "" : text);
+        String next = text == null ? "" : text;
+
+        if (!next.equals(subtitleText.getText())) {
+            subtitleText.setText(next);
+        }
     }
 
     public void showSubtitlesEnabled(boolean enabled) {
